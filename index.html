@@ -771,25 +771,48 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     }
 }
 
+function getOpacity(timestamp) {
+    // Simuliramo da je marker star 10 dana (10 * 24 * 60 * 60 * 1000 milisekundi)
+    const desetDana = 864000000; 
+    const fakeAge = desetDana; 
+    
+    // Formula sa kojom smo radili (2 nedelje period bledenja)
+    const dveNedelje = 14 * 24 * 60 * 60 * 1000;
+    let opacity = 1 - (fakeAge / dveNedelje); 
+    
+    // Ograničenja
+    return Math.max(0.2, Math.min(1, opacity));
+}
     function ucitajSveMarkere() {
     db.collection("markeri").onSnapshot(snapshot => {
         snapshot.docChanges().forEach(change => {
-            if (change.type === "added") {
+            if (change.type === "added" || change.type === "modified") {
                 const podaci = change.doc.data();
                 const docId = change.doc.id;
+                console.log("Timestamp markera:", podaci.timestamp);
+                const timestamp = podaci.timestamp || Date.now();
                 
+                // Koristi funkciju getOpacity koju smo napravile ranije
+                const trenutniOpacity = getOpacity(timestamp);
+                console.log("Marker:", podaci.text, "Age (hours):", (Date.now() - podaci.timestamp) / 3600000, "Opacity:", trenutniOpacity);
                 const ikona = L.divIcon({ 
                     className: 'svetionik-marker', 
                     iconSize: [12, 12], 
                     iconAnchor: [6, 6] 
                 });
                 
-                const m = L.marker([podaci.lat, podaci.lng], { icon: ikona }).addTo(map);
+                const m = L.marker([podaci.lat, podaci.lng], { icon: ikona, opacity: trenutniOpacity }).addTo(map);
                 
                 // Koristimo window objekat da izbegnemo grešku pri inicijalizaciji
                 window.sviMarkeriObjekat[docId] = m;
 
                 m.on('click', () => {
+                    m.setOpacity(1);
+                    
+                    // 2. Ažuriranje u bazi da se ne bi odmah vratio u staro stanje
+                    db.collection("markeri").doc(docId).update({
+                        timestamp: Date.now()
+                    });
                     const nemaMuzike = !podaci.muzika || podaci.muzika.trim() === "";
                     if (nemaMuzike) {
                         if (typeof zvukKlika !== 'undefined') {
@@ -801,15 +824,15 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
 
                 // 1. PRVO pripremamo datum
                let datumPoruke = "";
-if (podaci.vreme && podaci.vreme.toDate) {
+    if (podaci.vreme && podaci.vreme.toDate) {
     datumPoruke = podaci.vreme.toDate().toLocaleDateString();
-} else if (podaci.timestamp) {
+    } else if (podaci.timestamp) {
     datumPoruke = new Date(podaci.timestamp).toLocaleDateString();
-} else {
+    } else {
     datumPoruke = new Date().toLocaleDateString();
-}
+    }
 
-let tekstPopupa = `<span class="objavljena-poruka">${podaci.text}</span>
+        let tekstPopupa = `<span class="objavljena-poruka">${podaci.text}</span>
                    <div style="font-size: 10px; color: #666; margin-top: 8px; font-style: italic;">
                    ${datumPoruke}</div>`;
                 
@@ -1129,6 +1152,8 @@ function pustiMuziku() {
 
 // Čekamo prvi klik na sajt da "otključamo" zvuk
 document.addEventListener('click', pustiMuziku);
+
+
 
 </script>
 </body>
